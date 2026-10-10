@@ -1,0 +1,154 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A newer push to the same branch/PR cancels the run still in progress.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  IMAGE_NAME: aceest-fitness
+
+jobs:
+  build-lint:
+    name: Build & Lint (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.9 = Rocky Linux 9 system Python, 3.12 = Docker base image
+        python-version: ["3.9", "3.12"]
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: requirements*.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Compile (syntax check)
+        run: python -m compileall -q app.py aceest tests
+
+      - name: Lint (flake8)
+        run: flake8
+
+      - name: Verify the app builds
+        run: python -c "from app import app; print('Routes:', len(list(app.url_map.iter_rules())))"
+
+  docker-build:
+    name: Docker Image Assembly
+    runs-on: ubuntu-latest
+    needs: build-lint
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v7
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build test image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          target: test
+          tags: ${{ env.IMAGE_NAME }}:test
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build runtime image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          target: runtime
+          tags: |
+            ${{ env.IMAGE_NAME }}:${{ github.sha }}
+            ${{ env.IMAGE_NAME }}:latest
+          load: true
+          cache-from: type=gha
+
+      - name: Show images
+        run: docker images "$IMAGE_NAME"
+
+      - name: Export images
+        run: docker save "$IMAGE_NAME:test" "$IMAGE_NAME:${{ github.sha }}" | gzip > images.tar.gz
+
+      - name: Upload images
+        uses: actions/upload-artifact@v7
+        with:
+          name: docker-images
+          path: images.tar.gz
+          retention-days: 1
+
+  container-tests:
+    name: Automated Testing (in container)
+    runs-on: ubuntu-latest
+    needs: docker-build
+    steps:
+      - name: Download images
+        uses: actions/download-artifact@v8
+        with:
+          name: docker-images
+
+      - name: Load images
+        run: gunzip -c images.tar.gz | docker load
+
+      - name: Run Pytest suite inside the test container
+        run: |
+          docker run --name aceest-tests -e COVERAGE_FILE=/tmp/.coverage \
+            "$IMAGE_NAME:test" \
+            pytest -v -p no:cacheprovider \
+              --junitxml=/tmp/reports/junit.xml \
+              --cov=aceest --cov-report=term-missing \
+              --cov-report=xml:/tmp/reports/coverage.xml \
+              --cov-fail-under=90
+
+      - name: Collect test reports
+        if: always()
+        run: |
+          docker cp aceest-tests:/tmp/reports ./reports || true
+          docker rm -f aceest-tests || true
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-reports
+          path: reports/
+          if-no-files-found: ignore
+
+      - name: Smoke test runtime container
+        run: |
+          docker run -d --name aceest-smoke -p 5000:5000 -e SECRET_KEY=ci-smoke \
+            "$IMAGE_NAME:${{ github.sha }}"
+          for i in $(seq 1 30); do
+            status=$(docker inspect -f '{{.State.Health.Status}}' aceest-smoke)
+            echo "Health: $status"
+            [ "$status" = "healthy" ] && break
+            [ "$status" = "unhealthy" ] && break
+            sleep 2
+          done
+          docker logs aceest-smoke
+          [ "$status" = "healthy" ]
+          [ "$(docker exec aceest-smoke whoami)" = "app" ]
+          curl -fsS http://localhost:5000/health
+          curl -fsS http://localhost:5000/api/programs > /dev/null
+
+      - name: Clean up
+        if: always()
+        run: docker rm -f aceest-smoke || true

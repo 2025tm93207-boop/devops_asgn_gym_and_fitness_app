@@ -1,20 +1,26 @@
 # ACEest Fitness & Gym
 
+[![CI](https://github.com/2025tm93207-boop/devops_asgn_gym_and_fitness_app/actions/workflows/main.yml/badge.svg)](https://github.com/2025tm93207-boop/devops_asgn_gym_and_fitness_app/actions/workflows/main.yml)
+
 A Flask web application for gym and fitness management, built as part of the **Introduction to DevOps (CSIZG514/SEZG514)** assignment. It is a web-based rewrite of the ACEest Tkinter desktop scripts (v1.0 – v3.1.2), covering client management, workout and body-metric logging, BMI analysis and workout plan generation.
 
-This README covers environment setup and execution for every stage implemented so far:
+This README covers environment setup and execution for every stage of the project:
 
 1. [Application (Flask)](#1-application-setup-and-execution)
 2. [Version control workflow](#2-version-control-workflow)
 3. [Unit tests (Pytest)](#3-running-the-tests)
 4. [Containerisation (Docker)](#4-docker)
 5. [Jenkins BUILD & quality gate](#5-jenkins-build--quality-gate)
+6. [GitHub Actions CI/CD pipeline](#6-github-actions-cicd-pipeline)
+7. [How Jenkins and GitHub Actions fit together](#7-how-jenkins-and-github-actions-fit-together)
 
 ---
 
 ## Repository layout
 
 ```
+├── .github/workflows/
+│   └── main.yml            # GitHub Actions CI pipeline
 ├── app.py                  # Entry point (creates the Flask app)
 ├── aceest/
 │   ├── __init__.py         # create_app() factory and configuration
@@ -43,6 +49,7 @@ This README covers environment setup and execution for every stage implemented s
 | Git    | any recent       | Step 2              |
 | Docker | 20.10 or newer   | Steps 4 and 5       |
 | Java   | 21 (OpenJDK)     | Step 5 (Jenkins)    |
+| GitHub account | –        | Step 6 (Actions run on GitHub's servers; nothing to install) |
 
 Tested on **Rocky Linux 9.5** (Python 3.9) and **Windows 11** (Python 3.12+).
 
@@ -187,6 +194,7 @@ The repository follows a feature-branch workflow: `main` always holds reviewed, 
 | `feature/pytest-suite`  | Pytest unit and API test suite           |
 | `feature/docker`        | Dockerfile and container setup           |
 | `feature/jenkins`       | Jenkinsfile, lint config                 |
+| `feature/github-actions`| GitHub Actions workflow                  |
 
 Typical flow for a new change:
 
@@ -400,6 +408,98 @@ docker build --target test -t aceest-fitness:test . && docker run --rm aceest-fi
 
 ---
 
+## 6. GitHub Actions CI/CD pipeline
+
+The workflow in [.github/workflows/main.yml](.github/workflows/main.yml) runs automatically on **every push to any branch and every pull request**. It can also be started by hand from the **Actions** tab (**Run workflow**). It runs on GitHub-hosted Ubuntu runners, so nothing needs to be installed.
+
+### 6.1 Jobs
+
+The three jobs run in sequence. Each one starts only if the previous one passed.
+
+```
+Build & Lint (3.9)  ─┐
+                     ├─▶ Docker Image Assembly ─▶ Automated Testing (in container)
+Build & Lint (3.12) ─┘
+```
+
+| Job | Steps | Fails when… |
+|-----|-------|-------------|
+| **Build & Lint** (Python 3.9 and 3.12) | Install `requirements-dev.txt` → `python -m compileall` (syntax) → `flake8` (lint) → import the app and build its URL map | Syntax error, lint error, missing dependency, or the app cannot be built |
+| **Docker Image Assembly** | Build the `test` and `runtime` targets with Buildx (layer cache stored in the GitHub Actions cache) → export both images as a workflow artifact | The Dockerfile does not build |
+| **Automated Testing (in container)** | Load the images → run the full Pytest suite **inside the `test` container** with a 90 % coverage gate → collect JUnit/coverage reports → start the `runtime` container and wait for its `HEALTHCHECK` to report `healthy`, then check that it runs as non-root and that `/health` and `/api/programs` respond | Any test fails, coverage < 90 %, or the runtime container is unhealthy |
+
+Python 3.9 matches the Rocky Linux 9 system Python, and 3.12 matches the Docker base image, so the code is checked on both runtimes it is deployed on. A newer push to the same branch cancels any run still in progress. The workflow token is read-only (`permissions: contents: read`).
+
+### 6.2 Viewing results
+
+1. Open the repository on GitHub → **Actions** tab → **CI** workflow.
+2. Click a run to see the jobs and their logs. The pytest output is under **Automated Testing → Run Pytest suite inside the test container**.
+3. **Artifacts** at the bottom of the run page: `test-reports` (`junit.xml`, `coverage.xml`) and `docker-images` (kept for 1 day).
+4. On a pull request, the checks appear at the bottom of the PR. The badge at the top of this README shows the status of the latest run on `main`.
+
+### 6.3 Requiring CI to pass before merging (recommended)
+
+Go to **Settings → Branches → Add branch ruleset** (or **Add classic branch protection rule**) for `main` → enable **Require status checks to pass** → select the CI jobs. Pull requests can then be merged only when the pipeline is green.
+
+### 6.4 Running the same steps locally
+
+```bash
+pip install -r requirements-dev.txt
+python -m compileall -q app.py aceest tests && flake8                 # Build & Lint
+docker build --target test -t aceest-fitness:test .                   # Docker Image Assembly
+docker build -t aceest-fitness:latest .
+docker run --rm -e COVERAGE_FILE=/tmp/.coverage aceest-fitness:test \
+  pytest -v -p no:cacheprovider --cov=aceest --cov-fail-under=90     # Automated Testing
+```
+
+---
+
+## 7. How Jenkins and GitHub Actions fit together
+
+```mermaid
+flowchart LR
+    Dev[Developer] -->|git push / PR| GH[(GitHub repository)]
+    GH -->|push / pull_request event| GHA[GitHub Actions<br/>Build & Lint → Docker → Tests in container]
+    GHA -->|status check| PR[Pull request]
+    PR -->|merge| Main[main branch]
+    Main -.->|pollSCM every 5 min| J[Jenkins on lab VM<br/>clean BUILD + quality gate]
+    J --> Img[aceest-fitness:BUILD_NUMBER<br/>image on the VM]
+```
+
+The two pipelines check the same code at different points:
+
+| | GitHub Actions | Jenkins |
+|---|---|---|
+| **Role** | Primary CI: fast feedback on every change | Secondary BUILD and quality gate in a controlled environment |
+| **Runs on** | GitHub-hosted Ubuntu runners | The lab Rocky Linux 9.5 VM |
+| **Trigger** | Every `push` (any branch) and every `pull_request` | Polls `main` every 5 minutes, or **Build Now** |
+| **Checks** | Syntax + lint on Python 3.9 and 3.12, Docker build, tests inside the container, runtime smoke test | Clean workspace + fresh venv, lint, tests with a 90 % coverage gate, Docker build, tests inside the container, runtime smoke test |
+| **Output** | Status checks on commits and PRs, test-report artifacts | Build history, JUnit trend, archived reports, versioned images on the VM |
+
+The workflow, step by step:
+
+1. A developer pushes to a `feature/*` branch and opens a pull request.
+2. GitHub Actions runs on the push and on the PR. A broken build, lint error or failing test is visible on the PR before review.
+3. After review, the PR is merged into `main`, and GitHub Actions runs again on the merge commit.
+4. Within about 5 minutes, Jenkins sees the new commit on `main`. It rebuilds everything from scratch on the lab VM and keeps a versioned Docker image (`aceest-fitness:<build-number>`) ready to run there.
+
+Both pipelines use the same commands (`compileall`, `flake8`, `pytest`, `docker build --target test|runtime`), so a pass in one should mean a pass in the other. Jenkins adds an independent check: it builds in a different environment from GitHub's runners.
+
+---
+
+## Assignment deliverables
+
+| Requirement | Where |
+|---|---|
+| Flask application source | [app.py](app.py), [aceest/](aceest/), [requirements.txt](requirements.txt) |
+| Pytest suite | [tests/](tests/), [pytest.ini](pytest.ini), [requirements-dev.txt](requirements-dev.txt) |
+| Dockerfile | [Dockerfile](Dockerfile), [.dockerignore](.dockerignore) |
+| GitHub Actions workflow | [.github/workflows/main.yml](.github/workflows/main.yml) |
+| Jenkins BUILD | [Jenkinsfile](Jenkinsfile); setup in [section 5](#5-jenkins-build--quality-gate) |
+| Documentation | This README: local setup ([1](#1-application-setup-and-execution)), running tests ([3](#3-running-the-tests)), CI/CD overview ([7](#7-how-jenkins-and-github-actions-fit-together)) |
+
+---
+
 ## Troubleshooting
 
 | Symptom | Fix |
@@ -416,3 +516,6 @@ docker build --target test -t aceest-fitness:test . && docker run --rm aceest-fi
 | Jenkins: `python3: not found` or `No module named venv` | `sudo dnf install -y python3`. |
 | Jenkins: `No such DSL method 'timestamps'` | Install the **Timestamper** plugin (part of the suggested plugins). |
 | Jenkins UI not reachable on port 8080 | Open the port in `firewalld` (step 5.2) or tunnel with `ssh -L 8080:localhost:8080 <user>@<VM-IP>`. |
+| Actions: `flake8` fails | Run `flake8` locally and fix the reported file/line before pushing. |
+| Actions: workflow does not run | Check that `.github/workflows/main.yml` is on the pushed branch, and that Actions is enabled under **Settings → Actions → General**. |
+| Actions: coverage below 90 % | New code was added without tests; add tests, or check the `--cov-report=term-missing` output for uncovered lines. |
