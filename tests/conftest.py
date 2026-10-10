@@ -3,7 +3,7 @@ import pytest
 from aceest import create_app
 
 SAMPLE_CLIENT = {
-    "name": "Ravi",
+    "name": "Prerna",
     "age": 30,
     "height": 175,
     "weight": 80,
