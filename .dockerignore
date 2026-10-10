@@ -1,0 +1,21 @@
+# Keep the build context small and free of local state/secrets
+.git
+.gitignore
+.github
+.venv
+venv
+__pycache__
+*.py[cod]
+.pytest_cache
+.coverage
+htmlcov
+instance
+*.db
+cookies.txt
+*.pdf
+.vscode
+.idea
+Dockerfile
+.dockerignore
+Jenkinsfile
+README.md
