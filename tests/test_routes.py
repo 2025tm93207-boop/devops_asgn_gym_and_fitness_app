@@ -87,18 +87,18 @@ class TestAuth:
         [
             ("get", "/api/clients"),
             ("post", "/api/clients"),
-            ("get", "/api/clients/Ravi"),
-            ("put", "/api/clients/Ravi"),
-            ("delete", "/api/clients/Ravi"),
-            ("get", "/api/clients/Ravi/progress"),
-            ("post", "/api/clients/Ravi/progress"),
-            ("get", "/api/clients/Ravi/workouts"),
-            ("post", "/api/clients/Ravi/workouts"),
-            ("get", "/api/clients/Ravi/metrics"),
-            ("post", "/api/clients/Ravi/metrics"),
-            ("get", "/api/clients/Ravi/bmi"),
-            ("get", "/api/clients/Ravi/summary"),
-            ("post", "/api/clients/Ravi/generate-program"),
+            ("get", "/api/clients/Prerna"),
+            ("put", "/api/clients/Prerna"),
+            ("delete", "/api/clients/Prerna"),
+            ("get", "/api/clients/Prerna/progress"),
+            ("post", "/api/clients/Prerna/progress"),
+            ("get", "/api/clients/Prerna/workouts"),
+            ("post", "/api/clients/Prerna/workouts"),
+            ("get", "/api/clients/Prerna/metrics"),
+            ("post", "/api/clients/Prerna/metrics"),
+            ("get", "/api/clients/Prerna/bmi"),
+            ("get", "/api/clients/Prerna/summary"),
+            ("post", "/api/clients/Prerna/generate-program"),
         ],
     )
     def test_protected_endpoints_require_login(self, client, method, url):
@@ -120,7 +120,7 @@ class TestClients:
         resp = auth_client.post("/api/clients", json=SAMPLE_CLIENT)
         assert resp.status_code == 201
         data = resp.get_json()
-        assert data["name"] == "Ravi"
+        assert data["name"] == "Prerna"
         assert data["calories"] == 80 * 35
         assert data["membership_status"] == "active"
         assert "id" not in data
@@ -160,7 +160,7 @@ class TestClients:
         assert message in resp.get_json()["error"]
 
     def test_create_rejects_non_object_body(self, auth_client):
-        assert auth_client.post("/api/clients", json=["Ravi"]).status_code == 400
+        assert auth_client.post("/api/clients", json=["Prerna"]).status_code == 400
 
     def test_list_clients_sorted_by_name(self, auth_client):
         for name in ["Zara", "Arun", "Meena"]:
@@ -169,7 +169,7 @@ class TestClients:
         assert names == ["Arun", "Meena", "Zara"]
 
     def test_get_client(self, sample_client):
-        resp = sample_client.get("/api/clients/Ravi")
+        resp = sample_client.get("/api/clients/Prerna")
         assert resp.status_code == 200
         assert resp.get_json()["program"] == SAMPLE_CLIENT["program"]
 
@@ -179,7 +179,7 @@ class TestClients:
         assert "not found" in resp.get_json()["error"]
 
     def test_update_recalculates_calories_on_weight_change(self, sample_client):
-        resp = sample_client.put("/api/clients/Ravi", json={"weight": 90})
+        resp = sample_client.put("/api/clients/Prerna", json={"weight": 90})
         assert resp.status_code == 200
         data = resp.get_json()
         assert data["weight"] == 90
@@ -187,12 +187,12 @@ class TestClients:
         assert data["age"] == SAMPLE_CLIENT["age"]  # untouched fields are kept
 
     def test_update_recalculates_calories_on_program_change(self, sample_client):
-        resp = sample_client.put("/api/clients/Ravi", json={"program": "Fat Loss (FL) – 3 day"})
+        resp = sample_client.put("/api/clients/Prerna", json={"program": "Fat Loss (FL) – 3 day"})
         assert resp.get_json()["calories"] == 80 * 22
 
     def test_update_validation(self, sample_client):
-        assert sample_client.put("/api/clients/Ravi", json={"age": -1}).status_code == 400
-        assert sample_client.put("/api/clients/Ravi", json={}).status_code == 400
+        assert sample_client.put("/api/clients/Prerna", json={"age": -1}).status_code == 400
+        assert sample_client.put("/api/clients/Prerna", json={}).status_code == 400
 
     def test_update_missing_client(self, auth_client):
         assert auth_client.put("/api/clients/Ghost", json={"age": 20}).status_code == 404
@@ -205,13 +205,13 @@ class TestClients:
         assert resp.get_json()["membership_status"] == "expired"
 
     def test_delete_client_cascades(self, sample_client):
-        sample_client.post("/api/clients/Ravi/progress", json={"adherence": 80})
-        assert sample_client.delete("/api/clients/Ravi").status_code == 204
-        assert sample_client.get("/api/clients/Ravi").status_code == 404
+        sample_client.post("/api/clients/Prerna/progress", json={"adherence": 80})
+        assert sample_client.delete("/api/clients/Prerna").status_code == 204
+        assert sample_client.get("/api/clients/Prerna").status_code == 404
 
         # Re-creating the same name must not resurrect old history.
         sample_client.post("/api/clients", json=SAMPLE_CLIENT)
-        assert sample_client.get("/api/clients/Ravi/progress").get_json() == []
+        assert sample_client.get("/api/clients/Prerna/progress").get_json() == []
 
     def test_delete_missing_client(self, auth_client):
         assert auth_client.delete("/api/clients/Ghost").status_code == 404
@@ -222,19 +222,19 @@ class TestClients:
 
 class TestProgress:
     def test_add_and_list(self, sample_client):
-        resp = sample_client.post("/api/clients/Ravi/progress", json={"adherence": 75, "week": "Week 1"})
+        resp = sample_client.post("/api/clients/Prerna/progress", json={"adherence": 75, "week": "Week 1"})
         assert resp.status_code == 201
-        sample_client.post("/api/clients/Ravi/progress", json={"adherence": 85, "week": "Week 2"})
-        data = sample_client.get("/api/clients/Ravi/progress").get_json()
+        sample_client.post("/api/clients/Prerna/progress", json={"adherence": 85, "week": "Week 2"})
+        data = sample_client.get("/api/clients/Prerna/progress").get_json()
         assert data == [{"week": "Week 1", "adherence": 75}, {"week": "Week 2", "adherence": 85}]
 
     def test_default_week_label(self, sample_client):
-        resp = sample_client.post("/api/clients/Ravi/progress", json={"adherence": 50})
+        resp = sample_client.post("/api/clients/Prerna/progress", json={"adherence": 50})
         assert resp.get_json()["week"].startswith("Week ")
 
     @pytest.mark.parametrize("payload", [{}, {"adherence": -1}, {"adherence": 101}, {"adherence": "x"}])
     def test_validation(self, sample_client, payload):
-        assert sample_client.post("/api/clients/Ravi/progress", json=payload).status_code == 400
+        assert sample_client.post("/api/clients/Prerna/progress", json=payload).status_code == 400
 
     def test_unknown_client(self, auth_client):
         assert auth_client.post("/api/clients/Ghost/progress", json={"adherence": 50}).status_code == 404
@@ -256,25 +256,25 @@ class TestWorkouts:
     }
 
     def test_add_workout_with_exercises(self, sample_client):
-        resp = sample_client.post("/api/clients/Ravi/workouts", json=self.WORKOUT)
+        resp = sample_client.post("/api/clients/Prerna/workouts", json=self.WORKOUT)
         assert resp.status_code == 201
         data = resp.get_json()
         assert data["notes"] == "Felt strong"
         assert [e["name"] for e in data["exercises"]] == ["Squat", "Bench Press"]
 
     def test_list_newest_first_with_exercises(self, sample_client):
-        sample_client.post("/api/clients/Ravi/workouts", json=self.WORKOUT)
+        sample_client.post("/api/clients/Prerna/workouts", json=self.WORKOUT)
         sample_client.post(
-            "/api/clients/Ravi/workouts",
+            "/api/clients/Prerna/workouts",
             json={"date": "2026-10-05", "workout_type": "Mobility"},
         )
-        data = sample_client.get("/api/clients/Ravi/workouts").get_json()
+        data = sample_client.get("/api/clients/Prerna/workouts").get_json()
         assert [w["date"] for w in data] == ["2026-10-05", "2026-10-01"]
         assert data[0]["exercises"] == []
         assert data[1]["exercises"][0] == {"name": "Squat", "sets": 5, "reps": 5, "weight": 100.0}
 
     def test_date_defaults_to_today(self, sample_client):
-        resp = sample_client.post("/api/clients/Ravi/workouts", json={"workout_type": "Mixed"})
+        resp = sample_client.post("/api/clients/Prerna/workouts", json={"workout_type": "Mixed"})
         assert resp.get_json()["date"] == date.today().isoformat()
 
     @pytest.mark.parametrize(
@@ -290,12 +290,12 @@ class TestWorkouts:
         ],
     )
     def test_validation(self, sample_client, payload):
-        assert sample_client.post("/api/clients/Ravi/workouts", json=payload).status_code == 400
+        assert sample_client.post("/api/clients/Prerna/workouts", json=payload).status_code == 400
 
     def test_invalid_workout_is_not_partially_saved(self, sample_client):
         bad = {"workout_type": "Strength", "exercises": [{"name": "Squat"}, {"name": ""}]}
-        sample_client.post("/api/clients/Ravi/workouts", json=bad)
-        assert sample_client.get("/api/clients/Ravi/workouts").get_json() == []
+        sample_client.post("/api/clients/Prerna/workouts", json=bad)
+        assert sample_client.get("/api/clients/Prerna/workouts").get_json() == []
 
 
 # ---------- body metrics ----------
@@ -303,30 +303,30 @@ class TestWorkouts:
 
 class TestMetrics:
     def test_add_and_list_sorted_by_date(self, sample_client):
-        sample_client.post("/api/clients/Ravi/metrics", json={"date": "2026-10-08", "weight": 79})
-        sample_client.post("/api/clients/Ravi/metrics", json={"date": "2026-10-01", "weight": 81})
-        data = sample_client.get("/api/clients/Ravi/metrics").get_json()
+        sample_client.post("/api/clients/Prerna/metrics", json={"date": "2026-10-08", "weight": 79})
+        sample_client.post("/api/clients/Prerna/metrics", json={"date": "2026-10-01", "weight": 81})
+        data = sample_client.get("/api/clients/Prerna/metrics").get_json()
         assert [m["date"] for m in data] == ["2026-10-01", "2026-10-08"]
 
     def test_weigh_in_updates_client_weight_and_calories(self, sample_client):
         sample_client.post(
-            "/api/clients/Ravi/metrics",
+            "/api/clients/Prerna/metrics",
             json={"date": "2026-10-01", "weight": 82, "waist": 85, "bodyfat": 18},
         )
-        client = sample_client.get("/api/clients/Ravi").get_json()
+        client = sample_client.get("/api/clients/Prerna").get_json()
         assert client["weight"] == 82
         assert client["calories"] == 82 * 35
 
     def test_metrics_without_weight_keep_client_weight(self, sample_client):
-        sample_client.post("/api/clients/Ravi/metrics", json={"waist": 84})
-        assert sample_client.get("/api/clients/Ravi").get_json()["weight"] == 80
+        sample_client.post("/api/clients/Prerna/metrics", json={"waist": 84})
+        assert sample_client.get("/api/clients/Prerna").get_json()["weight"] == 80
 
     @pytest.mark.parametrize(
         "payload",
         [{"date": "bad"}, {"weight": 5}, {"waist": 1000}, {"bodyfat": 90}, {"weight": "heavy"}],
     )
     def test_validation(self, sample_client, payload):
-        assert sample_client.post("/api/clients/Ravi/metrics", json=payload).status_code == 400
+        assert sample_client.post("/api/clients/Prerna/metrics", json=payload).status_code == 400
 
 
 # ---------- analytics ----------
@@ -334,7 +334,7 @@ class TestMetrics:
 
 class TestAnalytics:
     def test_bmi(self, sample_client):
-        resp = sample_client.get("/api/clients/Ravi/bmi")
+        resp = sample_client.get("/api/clients/Prerna/bmi")
         assert resp.status_code == 200
         assert resp.get_json()["bmi"] == 26.1
         assert resp.get_json()["category"] == "Overweight"
@@ -344,8 +344,8 @@ class TestAnalytics:
         assert auth_client.get("/api/clients/Asha/bmi").status_code == 400
 
     def test_summary_empty_history(self, sample_client):
-        data = sample_client.get("/api/clients/Ravi/summary").get_json()
-        assert data["client"]["name"] == "Ravi"
+        data = sample_client.get("/api/clients/Prerna/summary").get_json()
+        assert data["client"]["name"] == "Prerna"
         assert data["program_notes"] == "Push/Pull/Legs hypertrophy"
         assert data["weeks_logged"] == 0
         assert data["average_adherence"] == 0
@@ -354,12 +354,12 @@ class TestAnalytics:
 
     def test_summary_aggregates_history(self, sample_client):
         for adherence in (70, 80, 95):
-            sample_client.post("/api/clients/Ravi/progress", json={"adherence": adherence})
-        sample_client.post("/api/clients/Ravi/workouts", json={"workout_type": "Strength"})
-        sample_client.post("/api/clients/Ravi/metrics", json={"date": "2026-09-01", "weight": 81})
-        sample_client.post("/api/clients/Ravi/metrics", json={"date": "2026-10-01", "weight": 79})
+            sample_client.post("/api/clients/Prerna/progress", json={"adherence": adherence})
+        sample_client.post("/api/clients/Prerna/workouts", json={"workout_type": "Strength"})
+        sample_client.post("/api/clients/Prerna/metrics", json={"date": "2026-09-01", "weight": 81})
+        sample_client.post("/api/clients/Prerna/metrics", json={"date": "2026-10-01", "weight": 79})
 
-        data = sample_client.get("/api/clients/Ravi/summary").get_json()
+        data = sample_client.get("/api/clients/Prerna/summary").get_json()
         assert data["weeks_logged"] == 3
         assert data["average_adherence"] == 81.7
         assert data["workouts_logged"] == 1
@@ -370,7 +370,7 @@ class TestAnalytics:
 
     def test_generate_program(self, sample_client):
         resp = sample_client.post(
-            "/api/clients/Ravi/generate-program", json={"experience": "Intermediate"}
+            "/api/clients/Prerna/generate-program", json={"experience": "Intermediate"}
         )
         assert resp.status_code == 200
         data = resp.get_json()
@@ -380,11 +380,11 @@ class TestAnalytics:
 
     def test_generate_program_seed_is_reproducible(self, sample_client):
         payload = {"experience": "advanced", "seed": 7}
-        first = sample_client.post("/api/clients/Ravi/generate-program", json=payload).get_json()
-        second = sample_client.post("/api/clients/Ravi/generate-program", json=payload).get_json()
+        first = sample_client.post("/api/clients/Prerna/generate-program", json=payload).get_json()
+        second = sample_client.post("/api/clients/Prerna/generate-program", json=payload).get_json()
         assert first == second
 
     @pytest.mark.parametrize("payload", [{}, {"experience": "expert"}, None])
     def test_generate_program_invalid_experience(self, sample_client, payload):
-        resp = sample_client.post("/api/clients/Ravi/generate-program", json=payload)
+        resp = sample_client.post("/api/clients/Prerna/generate-program", json=payload)
         assert resp.status_code == 400
