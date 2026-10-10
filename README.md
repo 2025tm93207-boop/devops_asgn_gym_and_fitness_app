@@ -8,6 +8,7 @@ This README covers environment setup and execution for every stage implemented s
 2. [Version control workflow](#2-version-control-workflow)
 3. [Unit tests (Pytest)](#3-running-the-tests)
 4. [Containerisation (Docker)](#4-docker)
+5. [Jenkins BUILD & quality gate](#5-jenkins-build--quality-gate)
 
 ---
 
@@ -26,10 +27,12 @@ This README covers environment setup and execution for every stage implemented s
 │   ├── test_fitness.py     # Unit tests for business logic
 │   └── test_routes.py      # API / integration tests
 ├── requirements.txt        # Runtime dependencies (Flask, gunicorn)
-├── requirements-dev.txt    # Test dependencies (pytest, pytest-cov)
+├── requirements-dev.txt    # Test/lint dependencies (pytest, pytest-cov, flake8)
+├── .flake8                 # Lint configuration
 ├── pytest.ini
 ├── Dockerfile              # Multi-stage build: test and runtime targets
-└── .dockerignore
+├── .dockerignore
+└── Jenkinsfile             # Jenkins BUILD & quality-gate pipeline
 ```
 
 ## Prerequisites
@@ -38,7 +41,8 @@ This README covers environment setup and execution for every stage implemented s
 |--------|------------------|---------------------|
 | Python | 3.9 or newer     | Steps 1 and 3       |
 | Git    | any recent       | Step 2              |
-| Docker | 20.10 or newer   | Step 4              |
+| Docker | 20.10 or newer   | Steps 4 and 5       |
+| Java   | 21 (OpenJDK)     | Step 5 (Jenkins)    |
 
 Tested on **Rocky Linux 9.5** (Python 3.9) and **Windows 11** (Python 3.12+).
 
@@ -182,6 +186,7 @@ The repository follows a feature-branch workflow: `main` always holds reviewed, 
 | `main`                  | Stable, merged code                      |
 | `feature/pytest-suite`  | Pytest unit and API test suite           |
 | `feature/docker`        | Dockerfile and container setup           |
+| `feature/jenkins`       | Jenkinsfile, lint config                 |
 
 Typical flow for a new change:
 
@@ -236,6 +241,7 @@ pytest tests/test_routes.py::TestClients          # a single test class
 pytest -k bmi                                     # tests whose name matches "bmi"
 pytest --cov=aceest --cov-report=term-missing     # with a coverage report
 pytest --cov=aceest --cov-report=html             # HTML report in htmlcov/index.html
+flake8                                            # lint (style and syntax errors)
 ```
 
 Expected result: **133 passed**, with ~99 % coverage of the `aceest` package. A full run takes under a minute (most of the time is password hashing, which is deliberately slow).
@@ -316,6 +322,84 @@ docker volume rm aceest-data       # delete all stored data
 
 ---
 
+## 5. Jenkins BUILD & quality gate
+
+Jenkins is the secondary validation layer. A Pipeline job reads the [Jenkinsfile](Jenkinsfile) from GitHub and, on every run, builds the project from a clean workspace.
+
+### 5.1 Pipeline stages
+
+| # | Stage                        | What it does                                                                 | Fails the build when…                 |
+|---|------------------------------|------------------------------------------------------------------------------|---------------------------------------|
+| 1 | Checkout                     | Wipes the workspace (`deleteDir`) and pulls the latest commit from GitHub    | Repository unreachable                |
+| 2 | Setup Environment            | Creates a fresh `.venv` and installs `requirements-dev.txt`                  | A dependency cannot be installed      |
+| 3 | Lint                         | `python -m compileall` (syntax) and `flake8` (style/errors)                  | Any syntax or lint error              |
+| 4 | Unit Tests & Coverage Gate   | `pytest` with JUnit + coverage reports; gate at **90 %** coverage            | Any test fails or coverage < 90 %     |
+| 5 | Docker Build                 | Builds the `test` and `runtime` images, tagged with the build number         | Image does not build                  |
+| 6 | Container Tests              | Runs the Pytest suite **inside** the `test` image                            | Any test fails in the container       |
+| 7 | Container Smoke Test         | Starts the runtime image and waits for Docker's `HEALTHCHECK` to report `healthy`; checks it runs as non-root | Container never becomes healthy |
+
+After every run, Jenkins publishes the test results (the **Test Result** link on the build page), archives `reports/junit.xml` and `reports/coverage.xml`, and removes the smoke-test container and the per-build test image. Builds run one at a time, time out after 30 minutes, and the last 20 builds are kept.
+
+**Trigger:** the Jenkinsfile polls GitHub every ~5 minutes (`pollSCM('H/5 * * * *')`) and builds when there are new commits. Polling is used because a lab VM is normally not reachable by GitHub webhooks. **Build Now** starts a build manually at any time.
+
+### 5.2 Install Jenkins on Rocky Linux 9.5
+
+Jenkins LTS needs Java 21. Docker (step 4.1) must already be installed.
+
+```bash
+sudo dnf install -y fontconfig java-21-openjdk git python3 wget
+sudo wget -O /etc/yum.repos.d/jenkins.repo https://pkg.jenkins.io/rpm-stable/jenkins.repo
+sudo dnf install -y jenkins
+sudo systemctl daemon-reload && sudo systemctl enable --now jenkins
+sudo usermod -aG docker jenkins && sudo systemctl restart jenkins   # let Jenkins run docker
+sudo firewall-cmd --permanent --add-port=8080/tcp && sudo firewall-cmd --reload
+sudo cat /var/lib/jenkins/secrets/initialAdminPassword             # initial unlock password
+```
+
+Check that the `jenkins` user can use Docker and Python:
+
+```bash
+sudo -u jenkins docker ps && sudo -u jenkins python3 -m venv /tmp/venv-check && echo OK
+```
+
+### 5.3 First-time Jenkins setup
+
+1. Open `http://<VM-IP>:8080` and paste the initial admin password.
+2. Choose **Install suggested plugins**. These include Pipeline, Git, JUnit and Timestamper, which the Jenkinsfile uses.
+3. Create the admin user and keep the default Jenkins URL.
+
+### 5.4 Create the pipeline job
+
+1. **New Item** → name `aceest-fitness-build` → **Pipeline** → **OK**.
+2. **General:** tick **GitHub project** and enter the repository URL.
+3. **Pipeline** section:
+   - **Definition:** `Pipeline script from SCM`
+   - **SCM:** `Git`
+   - **Repository URL:** `https://github.com/2025tm93207-boop/devops_asgn_gym_and_fitness_app.git` (public repo, no credentials needed)
+   - **Branch Specifier:** `*/main`
+   - **Script Path:** `Jenkinsfile`
+4. **Save** → **Build Now**.
+
+The first build registers the `pollSCM` trigger from the Jenkinsfile. From then on, Jenkins builds automatically after each push to `main`.
+
+### 5.5 Reading the results
+
+- **Stage view / Console Output:** pass or fail for each stage, with full logs.
+- **Test Result:** per-test pass/fail history (from `reports/junit.xml`).
+- **Build Artifacts:** `junit.xml` and `coverage.xml`.
+- **Images on the VM:** `docker images aceest-fitness` lists `aceest-fitness:<build-number>` and `aceest-fitness:latest`.
+
+To run the same checks by hand on any machine:
+
+```bash
+python3 -m venv .venv && . .venv/bin/activate && pip install -r requirements-dev.txt
+python -m compileall -q app.py aceest tests && flake8
+pytest --cov=aceest --cov-fail-under=90
+docker build --target test -t aceest-fitness:test . && docker run --rm aceest-fitness:test
+```
+
+---
+
 ## Troubleshooting
 
 | Symptom | Fix |
@@ -328,3 +412,7 @@ docker volume rm aceest-data       # delete all stored data
 | `permission denied ... docker.sock` | Add your user to the `docker` group and log in again, or prefix with `sudo`. |
 | `dnf install docker-ce` reports conflicts | Remove `podman buildah runc` first (step 4.1). |
 | Container stays `unhealthy` | Check `docker logs aceest` for startup errors. |
+| Jenkins: `permission denied ... docker.sock` | `sudo usermod -aG docker jenkins && sudo systemctl restart jenkins`. |
+| Jenkins: `python3: not found` or `No module named venv` | `sudo dnf install -y python3`. |
+| Jenkins: `No such DSL method 'timestamps'` | Install the **Timestamper** plugin (part of the suggested plugins). |
+| Jenkins UI not reachable on port 8080 | Open the port in `firewalld` (step 5.2) or tunnel with `ssh -L 8080:localhost:8080 <user>@<VM-IP>`. |

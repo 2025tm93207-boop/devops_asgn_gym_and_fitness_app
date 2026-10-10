@@ -38,7 +38,9 @@ class TestBmi:
     def test_rounded_to_one_decimal(self):
         assert fitness.calculate_bmi(180, 75) == 23.1
 
-    @pytest.mark.parametrize("height, weight", [(0, 80), (175, 0), (None, 80), (175, None), (-1, 80)])
+    @pytest.mark.parametrize(
+        "height, weight", [(0, 80), (175, 0), (None, 80), (175, None), (-1, 80)]
+    )
     def test_invalid_input_raises(self, height, weight):
         with pytest.raises(ValueError):
             fitness.calculate_bmi(height, weight)
