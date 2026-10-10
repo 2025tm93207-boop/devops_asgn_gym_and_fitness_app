@@ -80,7 +80,8 @@ class TestAuth:
             }
         )
         c = app.test_client()
-        assert c.post("/api/login", json={"username": "coach", "password": "s3cret"}).status_code == 200
+        resp = c.post("/api/login", json={"username": "coach", "password": "s3cret"})
+        assert resp.status_code == 200
 
     @pytest.mark.parametrize(
         "method, url",
@@ -134,7 +135,9 @@ class TestClients:
         assert data["membership_status"] == "unknown"
 
     def test_name_is_trimmed(self, auth_client):
-        resp = auth_client.post("/api/clients", json={"name": "  Asha  ", "program": "Beginner (BG)"})
+        resp = auth_client.post(
+            "/api/clients", json={"name": "  Asha  ", "program": "Beginner (BG)"}
+        )
         assert resp.get_json()["name"] == "Asha"
 
     def test_duplicate_name_conflicts(self, sample_client):
@@ -222,7 +225,9 @@ class TestClients:
 
 class TestProgress:
     def test_add_and_list(self, sample_client):
-        resp = sample_client.post("/api/clients/Prerna/progress", json={"adherence": 75, "week": "Week 1"})
+        resp = sample_client.post(
+            "/api/clients/Prerna/progress", json={"adherence": 75, "week": "Week 1"}
+        )
         assert resp.status_code == 201
         sample_client.post("/api/clients/Prerna/progress", json={"adherence": 85, "week": "Week 2"})
         data = sample_client.get("/api/clients/Prerna/progress").get_json()
@@ -232,12 +237,15 @@ class TestProgress:
         resp = sample_client.post("/api/clients/Prerna/progress", json={"adherence": 50})
         assert resp.get_json()["week"].startswith("Week ")
 
-    @pytest.mark.parametrize("payload", [{}, {"adherence": -1}, {"adherence": 101}, {"adherence": "x"}])
+    @pytest.mark.parametrize(
+        "payload", [{}, {"adherence": -1}, {"adherence": 101}, {"adherence": "x"}]
+    )
     def test_validation(self, sample_client, payload):
         assert sample_client.post("/api/clients/Prerna/progress", json=payload).status_code == 400
 
     def test_unknown_client(self, auth_client):
-        assert auth_client.post("/api/clients/Ghost/progress", json={"adherence": 50}).status_code == 404
+        resp = auth_client.post("/api/clients/Ghost/progress", json={"adherence": 50})
+        assert resp.status_code == 404
 
 
 # ---------- workouts ----------
