@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ACEest Fitness &amp; Gym</title>
+  <style>
+    body { margin: 0; font-family: Arial, sans-serif; background: #1a1a1a; color: #eee; }
+    header { background: #d4af37; color: #000; padding: 20px; text-align: center; }
+    header h1 { margin: 0; font-size: 28px; }
+    main { max-width: 900px; margin: 0 auto; padding: 20px; }
+    h2 { color: #d4af37; border-bottom: 1px solid #333; padding-bottom: 6px; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 24px; }
+    th, td { text-align: left; padding: 8px; border-bottom: 1px solid #333; }
+    th { color: #d4af37; }
+    code { color: #d4af37; }
+  </style>
+</head>
+<body>
+  <header><h1>ACEest Fitness &amp; Gym</h1></header>
+  <main>
+    <h2>Programs</h2>
+    <table>
+      <tr><th>Program</th><th>Description</th><th>Calorie factor (kcal/kg)</th></tr>
+      {% for name, p in programs.items() %}
+      <tr><td>{{ name }}</td><td>{{ p.desc }}</td><td>{{ p.factor }}</td></tr>
+      {% endfor %}
+    </table>
+
+    <h2>API</h2>
+    <table>
+      <tr><th>Method</th><th>Endpoint</th><th>Purpose</th></tr>
+      <tr><td>GET</td><td><code>/health</code></td><td>Health check</td></tr>
+      <tr><td>GET</td><td><code>/api/programs</code></td><td>List programs</td></tr>
+      <tr><td>POST</td><td><code>/api/login</code>, <code>/api/logout</code></td><td>Session login / logout</td></tr>
+      <tr><td>GET, POST</td><td><code>/api/clients</code></td><td>List / create clients</td></tr>
+      <tr><td>GET, PUT, DELETE</td><td><code>/api/clients/&lt;name&gt;</code></td><td>Read / update / delete a client</td></tr>
+      <tr><td>GET, POST</td><td><code>/api/clients/&lt;name&gt;/progress</code></td><td>Weekly adherence</td></tr>
+      <tr><td>GET, POST</td><td><code>/api/clients/&lt;name&gt;/workouts</code></td><td>Workout log with exercises</td></tr>
+      <tr><td>GET, POST</td><td><code>/api/clients/&lt;name&gt;/metrics</code></td><td>Body metrics</td></tr>
+      <tr><td>GET</td><td><code>/api/clients/&lt;name&gt;/bmi</code></td><td>BMI and risk category</td></tr>
+      <tr><td>GET</td><td><code>/api/clients/&lt;name&gt;/summary</code></td><td>Client dashboard summary</td></tr>
+      <tr><td>POST</td><td><code>/api/clients/&lt;name&gt;/generate-program</code></td><td>Generate a weekly workout plan</td></tr>
+    </table>
+  </main>
+</body>
+</html>
